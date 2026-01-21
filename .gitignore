@@ -2,3 +2,12 @@
 obj/
 bin/
 *.user
+
+# JetBrains
+.idea/
+
+# Claude Code
+.claude/
+
+# Windows artifacts
+nul
