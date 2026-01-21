@@ -1,0 +1,13 @@
+{
+  "Author": "You",
+  "Name": "Armada",
+  "Punchline": "Submarine fleet data sync for Armada dashboard",
+  "Description": "Monitors AutoRetainer config file and sends submarine fleet data to the Armada web dashboard in real-time. Use /armada to configure.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "submarine",
+    "fleet",
+    "autoretainer",
+    "dashboard"
+  ]
+}
