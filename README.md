@@ -1,4 +1,4 @@
-# Armada
+# <img src="https://github.com/AsunaPahlo/armada-web/blob/master/app/static/armada_logo.png" alt="Armada Logo" height="60"> Armada
 
 A Dalamud plugin for FFXIV that uploads submarine fleet data to the Armada fleet tracking webui, enabling real-time submarine and airship voyage monitoring across your Free Company.
 
