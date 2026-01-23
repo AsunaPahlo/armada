@@ -325,6 +325,27 @@ public class ConfigWindow : Window, IDisposable
             ImGui.TextColored(SubtleTextColor, "Make sure AutoRetainer is installed and enabled.");
         }
 
+        // AllaganTools status
+        ImGui.Spacing();
+        var isAllaganToolsAvailable = P.FleetDataProvider.IsAllaganToolsAvailable;
+
+        if (isAllaganToolsAvailable)
+        {
+            ImGui.TextColored(SuccessColor, "●");
+            ImGui.SameLine();
+            ImGui.TextUnformatted("AllaganTools API connected");
+            ImGui.SameLine();
+            ImGui.TextColored(SubtleTextColor, "- Submarine parts inventory tracking enabled");
+        }
+        else
+        {
+            ImGui.TextColored(SubtleTextColor, "○");
+            ImGui.SameLine();
+            ImGui.TextColored(SubtleTextColor, "AllaganTools not available");
+            ImGui.SameLine();
+            ImGui.TextColored(SubtleTextColor, "- Optional, for parts inventory");
+        }
+
         ImGui.Unindent(4);
     }
 

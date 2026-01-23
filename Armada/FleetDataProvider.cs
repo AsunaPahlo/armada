@@ -64,16 +64,55 @@ public class FleetDataProvider : IDisposable
 
     private static int GetPartRowId(int itemId) => ItemIdToRowId.GetValueOrDefault(itemId, 0);
 
+    // All submarine part item IDs (for inventory queries)
+    private static readonly List<int> AllPartItemIds = ItemIdToRowId.Keys.ToList();
+
     private AutoRetainerApi? _api;
+    private InventoryToolsApi? _inventoryApi;
     private bool _isReady;
+    private DateTime _lastApiCheckTime = DateTime.MinValue;
+    private static readonly TimeSpan ApiCheckInterval = TimeSpan.FromSeconds(30);
 
     public bool IsReady => _isReady;
     public bool IsApiAvailable => _api?.Ready ?? false;
+    public bool IsAllaganToolsAvailable => _inventoryApi?.IsAvailable ?? false;
 
-    public void Initialize()
+    /// <summary>
+    /// Check if APIs that weren't available at startup are now available.
+    /// Called periodically to pick up plugins that get installed/enabled after startup.
+    /// </summary>
+    public void CheckAndInitializeApis()
+    {
+        // Only check periodically to avoid spam
+        if (DateTime.Now - _lastApiCheckTime < ApiCheckInterval)
+            return;
+
+        _lastApiCheckTime = DateTime.Now;
+
+        // Check AutoRetainer API
+        if (_api == null || !_api.Ready)
+        {
+            TryInitializeAutoRetainerApi();
+        }
+
+        // Check InventoryTools API
+        if (_inventoryApi == null || !_inventoryApi.IsAvailable)
+        {
+            TryInitializeInventoryToolsApi();
+        }
+    }
+
+    private void TryInitializeAutoRetainerApi()
     {
         try
         {
+            // Dispose existing instance if any
+            if (_api != null)
+            {
+                try { _api.Dispose(); } catch { }
+                _api = null;
+            }
+
             _api = new AutoRetainerApi();
             _isReady = _api.Ready;
 
@@ -81,16 +120,70 @@ public class FleetDataProvider : IDisposable
             {
                 PluginLog.Information("Armada: AutoRetainer API initialized successfully");
             }
-            else
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Debug($"Armada: AutoRetainer API not available - {ex.Message}");
+            _isReady = false;
+        }
+    }
+
+    private void TryInitializeInventoryToolsApi()
+    {
+        try
+        {
+            // If we have an existing instance, try re-subscribing first
+            if (_inventoryApi != null)
             {
-                PluginLog.Warning("Armada: AutoRetainer API not ready - is AutoRetainer installed and enabled?");
+                _inventoryApi.TryResubscribe();
+                if (_inventoryApi.IsAvailable)
+                {
+                    PluginLog.Information("Armada: InventoryTools API became available");
+                    return;
+                }
+            }
+
+            // Create new instance if we don't have one
+            if (_inventoryApi == null)
+            {
+                _inventoryApi = new InventoryToolsApi();
+                if (_inventoryApi.IsAvailable)
+                {
+                    PluginLog.Information("Armada: InventoryTools API initialized successfully");
+                }
+                else
+                {
+                    // Still keep the instance - it can become available later without re-init
+                    PluginLog.Debug("Armada: InventoryTools not available yet");
+                }
             }
         }
         catch (Exception ex)
         {
-            PluginLog.Error($"Armada: Failed to initialize AutoRetainer API - {ex.Message}");
-            _isReady = false;
+            PluginLog.Debug($"Armada: Failed to initialize InventoryTools API - {ex.Message}");
+            _inventoryApi = null;
         }
+    }
+
+    public void Initialize()
+    {
+        _lastApiCheckTime = DateTime.MinValue; // Allow immediate check
+        TryInitializeAutoRetainerApi();
+
+        if (!_isReady)
+        {
+            PluginLog.Warning("Armada: AutoRetainer API not ready - is AutoRetainer installed and enabled? Will retry periodically.");
+        }
+
+        // Initialize InventoryTools API (optional - used for submarine parts inventory)
+        TryInitializeInventoryToolsApi();
+
+        if (_inventoryApi == null || !_inventoryApi.IsAvailable)
+        {
+            PluginLog.Debug("Armada: InventoryTools not available - submarine parts inventory will not be tracked. Will retry periodically.");
+        }
+
+        _lastApiCheckTime = DateTime.Now;
     }
 
     public void ForceSend()
@@ -100,6 +193,9 @@ public class FleetDataProvider : IDisposable
 
     public async Task SendFleetDataAsync()
     {
+        // Check if APIs that weren't available at startup are now available
+        CheckAndInitializeApis();
+
         if (!P.ArmadaClient.IsConnected || !P.ArmadaClient.IsAuthenticated)
         {
             PluginLog.Debug("Armada: Skipping send - not connected");
@@ -456,6 +552,9 @@ public class FleetDataProvider : IDisposable
                     // for the current character's FC, not for other FCs
                     var charUnlocks = charData.CID == currentCid ? unlockedSectors : new List<int>();
 
+                    // Get submarine parts inventory from InventoryTools (if available)
+                    var inventoryParts = GetCharacterSubmarinePartsInventory(charData.CID);
+
                     characters.Add(new Dictionary<string, object>
                     {
                         ["cid"] = charData.CID.ToString(),
@@ -468,7 +567,8 @@ public class FleetDataProvider : IDisposable
                         ["num_sub_slots"] = charData.NumSubSlots,
                         ["enabled_subs"] = enabledSubs,
                         ["submarines"] = submarines,
-                        ["unlocked_sectors"] = charUnlocks
+                        ["unlocked_sectors"] = charUnlocks,
+                        ["inventory_parts"] = inventoryParts
                     });
                 }
             }
@@ -547,8 +647,51 @@ public class FleetDataProvider : IDisposable
         return submarines;
     }
 
+    /// <summary>
+    /// Get submarine parts inventory for a character using InventoryTools IPC.
+    /// </summary>
+    /// <param name="characterId">The character's Content ID (CID)</param>
+    /// <returns>Dictionary of itemId (as string) -> count for parts in inventory</returns>
+    private Dictionary<string, uint> GetCharacterSubmarinePartsInventory(ulong characterId)
+    {
+        var result = new Dictionary<string, uint>();
+
+        if (_inventoryApi == null || !_inventoryApi.IsAvailable)
+            return result;
+
+        try
+        {
+            var parts = _inventoryApi.GetSubmarinePartsInventory(characterId, AllPartItemIds);
+            foreach (var kvp in parts)
+            {
+                // Use string keys for JSON serialization consistency
+                result[kvp.Key.ToString()] = kvp.Value;
+            }
+
+            if (result.Count > 0)
+            {
+                PluginLog.Debug($"Armada: Found {result.Count} submarine part types in inventory for character {characterId}");
+            }
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Debug($"Armada: Failed to get submarine parts inventory for {characterId} - {ex.Message}");
+        }
+
+        return result;
+    }
+
     public void Dispose()
     {
+        try
+        {
+            _inventoryApi?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Error($"Armada: Error disposing InventoryTools API - {ex.Message}");
+        }
+
         try
         {
             _api?.Dispose();
@@ -558,6 +701,7 @@ public class FleetDataProvider : IDisposable
             PluginLog.Error($"Armada: Error disposing AutoRetainer API - {ex.Message}");
         }
 
+        _inventoryApi = null;
         _api = null;
         _isReady = false;
     }
