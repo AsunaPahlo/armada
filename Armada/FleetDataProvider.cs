@@ -288,13 +288,14 @@ public class FleetDataProvider : IDisposable
             var routePlans = GetRoutePlans();
             PluginLog.Debug($"Armada: Found {routePlans.Count} route plans");
 
-            // Get FC data
-            var fcData = GetFCData();
-            PluginLog.Debug($"Armada: Found {fcData.Count} FCs");
-
-            // Get character data with submarines
-            var characters = GetCharacterData();
+            // Get character data with submarines (collects active FC IDs from non-excluded characters)
+            var activeFcIds = new HashSet<string>();
+            var characters = GetCharacterData(activeFcIds);
             PluginLog.Debug($"Armada: Found {characters.Count} characters with submarines");
+
+            // Get FC data (filtered to only FCs with non-excluded characters)
+            var fcData = GetFCData(activeFcIds);
+            PluginLog.Debug($"Armada: Found {fcData.Count} FCs");
 
             return new Dictionary<string, object>
             {
@@ -348,7 +349,7 @@ public class FleetDataProvider : IDisposable
         return routePlans;
     }
 
-    private Dictionary<string, object> GetFCData()
+    private Dictionary<string, object> GetFCData(HashSet<string> activeFcIds)
     {
         var fcData = new Dictionary<string, object>();
 
@@ -363,6 +364,12 @@ public class FleetDataProvider : IDisposable
             {
                 foreach (var fc in fcs)
                 {
+                    var fcIdStr = fc.Key.ToString();
+
+                    // Skip FCs that have no non-excluded characters
+                    if (!activeFcIds.Contains(fcIdStr))
+                        continue;
+
                     var fcDict = new Dictionary<string, object>
                     {
                         ["name"] = fc.Value.Name ?? "",
@@ -373,7 +380,7 @@ public class FleetDataProvider : IDisposable
 
                     // Add house info if available and this is the current FC
                     if (fcHouseInfo != null && fcHouseInfo.ContainsKey("fc_id") &&
-                        fcHouseInfo["fc_id"].ToString() == fc.Key.ToString())
+                        fcHouseInfo["fc_id"].ToString() == fcIdStr)
                     {
                         fcDict["house_world"] = fcHouseInfo["world"];
                         fcDict["house_district"] = fcHouseInfo["district"];
@@ -381,7 +388,7 @@ public class FleetDataProvider : IDisposable
                         fcDict["house_plot"] = fcHouseInfo["plot"];
                     }
 
-                    fcData[fc.Key.ToString()] = fcDict;
+                    fcData[fcIdStr] = fcDict;
                 }
             }
         }
@@ -523,7 +530,7 @@ public class FleetDataProvider : IDisposable
         }
     }
 
-    private List<Dictionary<string, object>> GetCharacterData()
+    private List<Dictionary<string, object>> GetCharacterData(HashSet<string> activeFcIds)
     {
         var characters = new List<Dictionary<string, object>>();
 
@@ -541,6 +548,10 @@ public class FleetDataProvider : IDisposable
 
             foreach (var charData in offlineData)
             {
+                // Skip characters that have workshop excluded in AutoRetainer settings
+                if (charData.ExcludeWorkshop)
+                    continue;
+
                 var submarines = GetSubmarineData(charData);
 
                 if (submarines.Count > 0)
@@ -570,6 +581,9 @@ public class FleetDataProvider : IDisposable
                         ["unlocked_sectors"] = charUnlocks,
                         ["inventory_parts"] = inventoryParts
                     });
+
+                    // Track this FC as active (has non-excluded characters)
+                    activeFcIds.Add(charData.FCID.ToString());
                 }
             }
         }
