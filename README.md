@@ -1,6 +1,6 @@
 # <img src="https://github.com/AsunaPahlo/armada-web/blob/master/app/static/armada_logo.png" alt="Armada Logo" height="60"> Armada
 
-A Dalamud plugin for FFXIV that uploads submarine fleet data to the Armada fleet tracking webui, enabling real-time submarine and airship voyage monitoring across your Free Company.
+A Dalamud plugin for FFXIV that uploads submarine fleet data to the Armada fleet tracking webui, enabling real-time submarine voyage monitoring.
 
 ## Features
 
@@ -13,14 +13,15 @@ A Dalamud plugin for FFXIV that uploads submarine fleet data to the Armada fleet
 
 ### Prerequisites
 
-- XIVLauncher, FFXIV, Dalamud, AutoRetainer
+- AutoRetainer
+- AllaganTools
 - Access to an Armada webui instance (selfhosted or otherwise)
 
 ### Installing the Plugin
-
-1. Open the Plugin Installer in-game using `/xlplugins`
-2. Search for "Armada" and install
-3. Configure the plugin settings (see below)
+1. Add the repo `https://pages.gamba.pro/asuna/json`
+2. Open the Plugin Installer in-game using `/xlplugins`
+3. Search for "Armada" and install
+4. Configure the plugin settings (see below)
 
 ## Configuration
 
