@@ -83,6 +83,10 @@ public class FleetDataProvider : IDisposable
         22507, // Extravagant Salvaged Necklace
     };
 
+    // Dive Credit item ID - used to unlock submarine slots
+    // Cost: 1 for 1st sub, 3 for 2nd, 5 for 3rd, 7 for 4th (16 total)
+    private const uint DiveCreditItemId = 22317;
+
     private AutoRetainerApi? _api;
     private InventoryToolsApi? _inventoryApi;
     private bool _isReady;
@@ -592,6 +596,9 @@ public class FleetDataProvider : IDisposable
                     // Get salvage accessories value from InventoryTools (if available)
                     var salvageValue = GetCharacterSalvageValue(charData.CID);
 
+                    // Get dive credits count from InventoryTools (if available)
+                    var diveCredits = GetCharacterDiveCredits(charData.CID);
+
                     characters.Add(new Dictionary<string, object>
                     {
                         ["cid"] = charData.CID.ToString(),
@@ -606,7 +613,8 @@ public class FleetDataProvider : IDisposable
                         ["submarines"] = submarines,
                         ["unlocked_sectors"] = charUnlocks,
                         ["inventory_parts"] = inventoryParts,
-                        ["salvage_value"] = salvageValue
+                        ["salvage_value"] = salvageValue,
+                        ["dive_credits"] = diveCredits
                     });
 
                     // Track this FC as active (has non-excluded characters)
@@ -744,6 +752,28 @@ public class FleetDataProvider : IDisposable
         catch (Exception ex)
         {
             PluginLog.Error($"Armada: Failed to calculate salvage value for {characterId} - {ex.Message}");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Get the count of Dive Credits in a character's inventory.
+    /// Dive credits are used to unlock submarine slots (1 + 3 + 5 + 7 = 16 for all 4 subs).
+    /// </summary>
+    /// <param name="characterId">The character's Content ID (CID)</param>
+    /// <returns>Number of dive credits in inventory</returns>
+    private uint GetCharacterDiveCredits(ulong characterId)
+    {
+        if (_inventoryApi == null || !_inventoryApi.IsAvailable)
+            return 0;
+
+        try
+        {
+            return _inventoryApi.GetItemCount(DiveCreditItemId, characterId);
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Debug($"Armada: Failed to get dive credits for {characterId} - {ex.Message}");
             return 0;
         }
     }
