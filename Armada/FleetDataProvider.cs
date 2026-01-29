@@ -1,6 +1,8 @@
 using AutoRetainerAPI;
 using AutoRetainerAPI.Configuration;
+using ECommons.DalamudServices;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using Lumina.Excel.Sheets;
 
 namespace Armada;
 
@@ -66,6 +68,20 @@ public class FleetDataProvider : IDisposable
 
     // All submarine part item IDs (for inventory queries)
     private static readonly List<int> AllPartItemIds = ItemIdToRowId.Keys.ToList();
+
+    // Salvage accessory item IDs (can be vendored for gil)
+    // IDs from Garland Tools: https://garlandtools.org/db/
+    private static readonly List<uint> SalvageItemIds = new()
+    {
+        22500, // Salvaged Ring
+        22501, // Salvaged Bracelet
+        22502, // Salvaged Earring
+        22503, // Salvaged Necklace
+        22504, // Extravagant Salvaged Ring
+        22505, // Extravagant Salvaged Bracelet
+        22506, // Extravagant Salvaged Earring
+        22507, // Extravagant Salvaged Necklace
+    };
 
     private AutoRetainerApi? _api;
     private InventoryToolsApi? _inventoryApi;
@@ -188,10 +204,10 @@ public class FleetDataProvider : IDisposable
 
     public void ForceSend()
     {
-        Task.Run(SendFleetDataAsync);
+        Task.Run(() => SendFleetDataAsync(isManual: true));
     }
 
-    public async Task SendFleetDataAsync()
+    public async Task SendFleetDataAsync(bool isManual = false)
     {
         // Check if APIs that weren't available at startup are now available
         CheckAndInitializeApis();
@@ -206,6 +222,13 @@ public class FleetDataProvider : IDisposable
         if (!ShouldSendData())
         {
             PluginLog.Debug("Armada: Skipping send - player is off-world or in instance");
+            if (isManual)
+            {
+                Svc.Framework.RunOnFrameworkThread(() =>
+                {
+                    Svc.Chat.PrintError("[Armada] Cannot send data while off-world or in an instance.");
+                });
+            }
             return;
         }
 
@@ -265,7 +288,7 @@ public class FleetDataProvider : IDisposable
         catch (Exception ex)
         {
             PluginLog.Warning($"Armada: Error checking send conditions: {ex.Message}");
-            return true; // Default to sending if we can't determine state
+            return false; // Default to NOT sending if we can't determine state
         }
     }
 
@@ -566,6 +589,9 @@ public class FleetDataProvider : IDisposable
                     // Get submarine parts inventory from InventoryTools (if available)
                     var inventoryParts = GetCharacterSubmarinePartsInventory(charData.CID);
 
+                    // Get salvage accessories value from InventoryTools (if available)
+                    var salvageValue = GetCharacterSalvageValue(charData.CID);
+
                     characters.Add(new Dictionary<string, object>
                     {
                         ["cid"] = charData.CID.ToString(),
@@ -579,7 +605,8 @@ public class FleetDataProvider : IDisposable
                         ["enabled_subs"] = enabledSubs,
                         ["submarines"] = submarines,
                         ["unlocked_sectors"] = charUnlocks,
-                        ["inventory_parts"] = inventoryParts
+                        ["inventory_parts"] = inventoryParts,
+                        ["salvage_value"] = salvageValue
                     });
 
                     // Track this FC as active (has non-excluded characters)
@@ -659,6 +686,66 @@ public class FleetDataProvider : IDisposable
         }
 
         return submarines;
+    }
+
+    /// <summary>
+    /// Calculate the total gil value of salvage accessories in a character's inventory.
+    /// Uses AllaganTools IPC to get item counts and Lumina to get vendor prices.
+    /// </summary>
+    /// <param name="characterId">The character's Content ID (CID)</param>
+    /// <returns>Total gil value of all salvage items</returns>
+    private long GetCharacterSalvageValue(ulong characterId)
+    {
+        if (_inventoryApi == null)
+        {
+            PluginLog.Debug("Armada: Salvage check - InventoryApi is null");
+            return 0;
+        }
+
+        if (!_inventoryApi.IsAvailable)
+        {
+            PluginLog.Debug("Armada: Salvage check - InventoryApi not available");
+            return 0;
+        }
+
+        try
+        {
+            var itemSheet = Svc.Data.GetExcelSheet<Item>();
+            if (itemSheet == null)
+            {
+                PluginLog.Debug("Armada: Salvage check - Item sheet is null");
+                return 0;
+            }
+
+            long totalValue = 0;
+
+            foreach (var itemId in SalvageItemIds)
+            {
+                var count = _inventoryApi.GetItemCount(itemId, characterId);
+                if (count > 0)
+                {
+                    var item = itemSheet.GetRowOrDefault(itemId);
+                    if (item.HasValue)
+                    {
+                        var itemValue = (long)item.Value.PriceLow * count;
+                        totalValue += itemValue;
+                        PluginLog.Debug($"Armada: Salvage - {item.Value.Name} x{count} = {itemValue:N0} gil (ID: {itemId}, PriceLow: {item.Value.PriceLow})");
+                    }
+                    else
+                    {
+                        PluginLog.Debug($"Armada: Salvage - Item ID {itemId} not found in sheet");
+                    }
+                }
+            }
+
+            PluginLog.Debug($"Armada: Character {characterId} salvage total: {totalValue:N0} gil");
+            return totalValue;
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Error($"Armada: Failed to calculate salvage value for {characterId} - {ex.Message}");
+            return 0;
+        }
     }
 
     /// <summary>
