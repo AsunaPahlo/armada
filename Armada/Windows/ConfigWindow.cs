@@ -418,13 +418,17 @@ public class ConfigWindow : Window, IDisposable
             {
                 if (ImGui.SmallButton("Mark as Supplier"))
                 {
-                    var (ceruleum, repairKits) = P.FleetDataProvider.GetSupplierInventory(cid);
+                    var (ceruleum, repairKits, fcId, fcCeruleum, fcRepairKits) = P.FleetDataProvider.GetSupplierInventory(cid);
                     C.Suppliers[cid] = new SupplierCharacter
                     {
                         Name = name,
                         World = world,
                         Ceruleum = ceruleum,
                         RepairKits = repairKits,
+                        FcId = fcId,
+                        FcCeruleum = fcCeruleum,
+                        FcRepairKits = fcRepairKits,
+                        FcCredits = fcId != 0 ? P.FleetDataProvider.GetFCCredits(fcId) : 0,
                         LastUpdated = DateTime.UtcNow
                     };
                     Svc.PluginInterface.SavePluginConfig(C);

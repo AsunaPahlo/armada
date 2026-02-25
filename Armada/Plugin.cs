@@ -23,6 +23,7 @@ public sealed class Plugin : IDalamudPlugin
     public ArmadaClient ArmadaClient { get; private set; } = null!;
     public FleetDataProvider FleetDataProvider { get; private set; } = null!;
     public VoyageLootHook VoyageLootHook { get; private set; } = null!;
+    public FCPointsHook FCPointsHook { get; private set; } = null!;
     public DataCache DataCache { get; private set; } = null!;
 
     public Plugin(IDalamudPluginInterface pluginInterface)
@@ -46,6 +47,10 @@ public sealed class Plugin : IDalamudPlugin
             VoyageLootHook = new VoyageLootHook();
             VoyageLootHook.Initialize();
             VoyageLootHook.OnVoyageCompleted += OnVoyageLootCaptured;
+
+            // Initialize FC points hook (live FC credits via packet intercept)
+            FCPointsHook = new FCPointsHook();
+            FCPointsHook.Initialize();
 
             // Send fleet data and flush cache after authentication
             ArmadaClient.OnAuthenticated += OnAuthenticated;
@@ -96,6 +101,7 @@ public sealed class Plugin : IDalamudPlugin
             VoyageLootHook.OnVoyageCompleted -= OnVoyageLootCaptured;
 
         // Stop services
+        FCPointsHook?.Dispose();
         VoyageLootHook?.Dispose();
         FleetDataProvider?.Dispose();
         ArmadaClient?.Dispose();

@@ -42,5 +42,9 @@ public class SupplierCharacter
     public string World { get; set; } = "";
     public uint Ceruleum { get; set; }
     public uint RepairKits { get; set; }
+    public ulong FcId { get; set; }
+    public uint FcCeruleum { get; set; }
+    public uint FcRepairKits { get; set; }
+    public long FcCredits { get; set; }
     public DateTime LastUpdated { get; set; } = DateTime.MinValue;
 }
