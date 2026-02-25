@@ -425,21 +425,41 @@ public class ConfigWindow : Window, IDisposable
             {
                 if (ImGui.SmallButton("Mark as Supplier"))
                 {
-                    var (ceruleum, repairKits, fcId) = P.FleetDataProvider.GetSupplierInventory(cid);
+                    // Save supplier identity immediately so it persists even if
+                    // the inventory query below fails or the plugin unloads
                     lock (C.Suppliers)
                     {
                         C.Suppliers[cid] = new SupplierCharacter
                         {
                             Name = name,
                             World = world,
-                            Ceruleum = ceruleum,
-                            RepairKits = repairKits,
-                            FcId = fcId,
-                            FcCredits = fcId != 0 ? P.FleetDataProvider.GetFCCredits(fcId) : 0,
-                            LastUpdated = DateTime.UtcNow
                         };
                     }
                     Svc.PluginInterface.SavePluginConfig(C);
+
+                    // Then try to populate inventory data
+                    try
+                    {
+                        var (ceruleum, repairKits, fcId, fcCeruleum, fcRepairKits) = P.FleetDataProvider.GetSupplierInventory(cid);
+                        lock (C.Suppliers)
+                        {
+                            if (C.Suppliers.TryGetValue(cid, out var supplier))
+                            {
+                                supplier.Ceruleum = ceruleum;
+                                supplier.RepairKits = repairKits;
+                                supplier.FcId = fcId;
+                                supplier.FcCeruleum = fcCeruleum;
+                                supplier.FcRepairKits = fcRepairKits;
+                                supplier.FcCredits = fcId != 0 ? P.FleetDataProvider.GetFCCredits(fcId) : 0;
+                                supplier.LastUpdated = DateTime.UtcNow;
+                            }
+                        }
+                        Svc.PluginInterface.SavePluginConfig(C);
+                    }
+                    catch (Exception ex)
+                    {
+                        PluginLog.Warning($"Armada: Failed to get initial supplier inventory for {name} - {ex.Message}");
+                    }
                 }
             }
         }

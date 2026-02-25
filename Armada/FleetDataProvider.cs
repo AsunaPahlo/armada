@@ -820,29 +820,40 @@ public class FleetDataProvider : IDisposable
 
     /// <summary>
     /// Query the active character's ceruleum and repair materials via AllaganTools.
-    /// GetItemCountOwned already includes character + retainers + FC chest,
-    /// so we only need to resolve the FC ID for dedup and credits.
+    /// GetItemCountOwned includes character + retainers + FC chest, so we subtract
+    /// the FC portion to get personal-only amounts. FC chest is returned separately
+    /// so the web can deduplicate when multiple suppliers share the same FC.
     /// </summary>
-    public (uint ceruleum, uint repairKits, ulong fcId) GetSupplierInventory(ulong characterId)
+    public (uint ceruleum, uint repairKits, ulong fcId, uint fcCeruleum, uint fcRepairKits) GetSupplierInventory(ulong characterId)
     {
         if (_inventoryApi == null || !_inventoryApi.IsAvailable)
-            return (0, 0, 0);
+            return (0, 0, 0, 0, 0);
 
         try
         {
             // GetItemCountOwned sums across the active character + retainers + FC chest
-            var ceruleum = _inventoryApi.GetItemCountOwned(CeruleumTankItemId);
-            var repairKits = _inventoryApi.GetItemCountOwned(RepairMaterialsItemId);
+            var totalCeruleum = _inventoryApi.GetItemCountOwned(CeruleumTankItemId);
+            var totalRepairKits = _inventoryApi.GetItemCountOwned(RepairMaterialsItemId);
 
-            // Resolve FC ID for dedup and credits (not for inventory — already included above)
+            // Subtract FC chest to get personal+retainer only
             var fcId = GetCharacterFCId(characterId);
+            uint fcCeruleum = 0;
+            uint fcRepairKits = 0;
+            if (fcId != 0)
+            {
+                fcCeruleum = _inventoryApi.GetItemCount(CeruleumTankItemId, fcId);
+                fcRepairKits = _inventoryApi.GetItemCount(RepairMaterialsItemId, fcId);
+            }
 
-            return (ceruleum, repairKits, fcId);
+            var personalCeruleum = totalCeruleum - fcCeruleum;
+            var personalRepairKits = totalRepairKits - fcRepairKits;
+
+            return (personalCeruleum, personalRepairKits, fcId, fcCeruleum, fcRepairKits);
         }
         catch (Exception ex)
         {
             PluginLog.Debug($"Armada: Failed to get supplier inventory for {characterId} - {ex.Message}");
-            return (0, 0, 0);
+            return (0, 0, 0, 0, 0);
         }
     }
 
@@ -939,21 +950,23 @@ public class FleetDataProvider : IDisposable
             var existing = suppliersSnapshot.FirstOrDefault(s => s.Key == charInfo.Value.cid);
             if (existing.Value != null)
             {
-                var (ceruleum, repairKits, fcId) = GetSupplierInventory(charInfo.Value.cid);
+                var (ceruleum, repairKits, fcId, fcCeruleum, fcRepairKits) = GetSupplierInventory(charInfo.Value.cid);
                 existing.Value.Name = charInfo.Value.name;
                 existing.Value.World = charInfo.Value.world;
                 existing.Value.Ceruleum = ceruleum;
                 existing.Value.RepairKits = repairKits;
                 existing.Value.FcId = fcId;
+                existing.Value.FcCeruleum = fcCeruleum;
+                existing.Value.FcRepairKits = fcRepairKits;
                 existing.Value.FcCredits = fcId != 0 ? GetFCCredits(fcId) : 0;
                 existing.Value.LastUpdated = DateTime.UtcNow;
                 Svc.Framework.RunOnFrameworkThread(() => Svc.PluginInterface.SavePluginConfig(C));
             }
         }
 
-        // Build list of all suppliers. Ceruleum/repair counts already include FC chest
-        // (AllaganTools' GetItemCountOwned includes character + retainers + FC).
-        // FC ID is sent for credits dedup only.
+        // Build list of all suppliers. Personal ceruleum/repair (excluding FC chest) are sent
+        // separately from FC chest amounts so the web can deduplicate FC data when multiple
+        // suppliers share the same FC.
         foreach (var (cid, supplier) in suppliersSnapshot)
         {
             result.Add(new Dictionary<string, object>
@@ -964,6 +977,8 @@ public class FleetDataProvider : IDisposable
                 ["ceruleum"] = supplier.Ceruleum,
                 ["repair_kits"] = supplier.RepairKits,
                 ["fc_id"] = supplier.FcId.ToString(),
+                ["fc_ceruleum"] = supplier.FcCeruleum,
+                ["fc_repair_kits"] = supplier.FcRepairKits,
                 ["fc_credits"] = supplier.FcCredits,
                 ["last_updated"] = supplier.LastUpdated.ToString("o")
             });
