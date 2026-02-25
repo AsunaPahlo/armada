@@ -2,6 +2,7 @@ using AutoRetainerAPI;
 using AutoRetainerAPI.Configuration;
 using ECommons.DalamudServices;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using Lumina.Excel.Sheets;
 
 namespace Armada;
@@ -819,49 +820,66 @@ public class FleetDataProvider : IDisposable
 
     /// <summary>
     /// Query the active character's ceruleum and repair materials via AllaganTools.
-    /// Returns personal+retainer amounts and FC chest amounts separately to allow deduplication
-    /// when multiple suppliers share the same FC.
+    /// GetItemCountOwned already includes character + retainers + FC chest,
+    /// so we only need to resolve the FC ID for dedup and credits.
     /// </summary>
-    public (uint ceruleum, uint repairKits, ulong fcId, uint fcCeruleum, uint fcRepairKits) GetSupplierInventory(ulong characterId)
+    public (uint ceruleum, uint repairKits, ulong fcId) GetSupplierInventory(ulong characterId)
     {
         if (_inventoryApi == null || !_inventoryApi.IsAvailable)
-            return (0, 0, 0, 0, 0);
+            return (0, 0, 0);
 
         try
         {
-            // GetItemCountOwned sums across the active character + all their retainers
+            // GetItemCountOwned sums across the active character + retainers + FC chest
             var ceruleum = _inventoryApi.GetItemCountOwned(CeruleumTankItemId);
             var repairKits = _inventoryApi.GetItemCountOwned(RepairMaterialsItemId);
 
-            // Query FC chest separately — AllaganTools treats the FC as a separate character entity
+            // Resolve FC ID for dedup and credits (not for inventory — already included above)
             var fcId = GetCharacterFCId(characterId);
-            uint fcCeruleum = 0;
-            uint fcRepairKits = 0;
-            if (fcId != 0)
-            {
-                fcCeruleum = _inventoryApi.GetItemCount(CeruleumTankItemId, fcId);
-                fcRepairKits = _inventoryApi.GetItemCount(RepairMaterialsItemId, fcId);
-                PluginLog.Debug($"Armada: Supplier FC chest (FC ID: {fcId}): ceruleum={fcCeruleum}, repair={fcRepairKits}");
-            }
 
-            return (ceruleum, repairKits, fcId, fcCeruleum, fcRepairKits);
+            return (ceruleum, repairKits, fcId);
         }
         catch (Exception ex)
         {
             PluginLog.Debug($"Armada: Failed to get supplier inventory for {characterId} - {ex.Message}");
-            return (0, 0, 0, 0, 0);
+            return (0, 0, 0);
         }
     }
 
     /// <summary>
     /// Look up a character's FC ID from AutoRetainer offline data.
+    /// Falls back to live game data for the currently logged-in character.
     /// </summary>
-    private ulong GetCharacterFCId(ulong characterId)
+    private unsafe ulong GetCharacterFCId(ulong characterId)
     {
         try
         {
+            // Try AutoRetainer offline data first
             var charData = _api?.Config.OfflineData?.FirstOrDefault(c => c.CID == characterId);
-            return charData?.FCID ?? 0;
+            if (charData?.FCID is > 0)
+                return charData.FCID;
+
+            // Fall back to live game data if this is the currently logged-in character
+            var currentCid = Svc.Framework.RunOnFrameworkThread(() =>
+                    Svc.PlayerState.ContentId
+                ).Result;
+            
+            if (currentCid != 0 && currentCid == characterId)
+            {
+                ulong liveFcId = 0;
+                Svc.Framework.RunOnFrameworkThread(() =>
+                {
+                    liveFcId = InfoProxyFreeCompany.Instance()->Id;
+                }).Wait();
+
+                if (liveFcId != 0)
+                {
+                    PluginLog.Debug($"Armada: Got FC ID from live game data for character {characterId}: {liveFcId}");
+                    return liveFcId;
+                }
+            }
+
+            return 0;
         }
         catch
         {
@@ -905,28 +923,38 @@ public class FleetDataProvider : IDisposable
     {
         var result = new List<Dictionary<string, object>>();
 
-        // Refresh the current character's supplier data if they're registered
-        var charInfo = GetCurrentCharacterInfo();
-        if (charInfo.HasValue && C.Suppliers.ContainsKey(charInfo.Value.cid))
+        // Snapshot the suppliers dictionary to avoid concurrent modification with the UI thread.
+        // C.Suppliers is a regular Dictionary accessed from both the background send thread
+        // and the framework/UI thread (ConfigWindow), which can corrupt entries.
+        KeyValuePair<ulong, SupplierCharacter>[] suppliersSnapshot;
+        lock (C.Suppliers)
         {
-            var (ceruleum, repairKits, fcId, fcCeruleum, fcRepairKits) = GetSupplierInventory(charInfo.Value.cid);
-            var supplier = C.Suppliers[charInfo.Value.cid];
-            supplier.Name = charInfo.Value.name;
-            supplier.World = charInfo.Value.world;
-            supplier.Ceruleum = ceruleum;
-            supplier.RepairKits = repairKits;
-            supplier.FcId = fcId;
-            supplier.FcCeruleum = fcCeruleum;
-            supplier.FcRepairKits = fcRepairKits;
-            supplier.FcCredits = fcId != 0 ? GetFCCredits(fcId) : 0;
-            supplier.LastUpdated = DateTime.UtcNow;
-            Svc.PluginInterface.SavePluginConfig(C);
+            suppliersSnapshot = C.Suppliers.ToArray();
         }
 
-        // Build list of all suppliers with personal and FC chest amounts separate.
-        // The web backend deduplicates FC-level data (chest, credits) by fc_id to avoid
-        // double-counting when multiple suppliers share the same FC.
-        foreach (var (cid, supplier) in C.Suppliers)
+        // Refresh the current character's supplier data if they're registered
+        var charInfo = GetCurrentCharacterInfo();
+        if (charInfo.HasValue)
+        {
+            var existing = suppliersSnapshot.FirstOrDefault(s => s.Key == charInfo.Value.cid);
+            if (existing.Value != null)
+            {
+                var (ceruleum, repairKits, fcId) = GetSupplierInventory(charInfo.Value.cid);
+                existing.Value.Name = charInfo.Value.name;
+                existing.Value.World = charInfo.Value.world;
+                existing.Value.Ceruleum = ceruleum;
+                existing.Value.RepairKits = repairKits;
+                existing.Value.FcId = fcId;
+                existing.Value.FcCredits = fcId != 0 ? GetFCCredits(fcId) : 0;
+                existing.Value.LastUpdated = DateTime.UtcNow;
+                Svc.Framework.RunOnFrameworkThread(() => Svc.PluginInterface.SavePluginConfig(C));
+            }
+        }
+
+        // Build list of all suppliers. Ceruleum/repair counts already include FC chest
+        // (AllaganTools' GetItemCountOwned includes character + retainers + FC).
+        // FC ID is sent for credits dedup only.
+        foreach (var (cid, supplier) in suppliersSnapshot)
         {
             result.Add(new Dictionary<string, object>
             {
@@ -936,8 +964,6 @@ public class FleetDataProvider : IDisposable
                 ["ceruleum"] = supplier.Ceruleum,
                 ["repair_kits"] = supplier.RepairKits,
                 ["fc_id"] = supplier.FcId.ToString(),
-                ["fc_ceruleum"] = supplier.FcCeruleum,
-                ["fc_repair_kits"] = supplier.FcRepairKits,
                 ["fc_credits"] = supplier.FcCredits,
                 ["last_updated"] = supplier.LastUpdated.ToString("o")
             });

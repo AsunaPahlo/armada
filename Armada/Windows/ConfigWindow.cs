@@ -401,7 +401,11 @@ public class ConfigWindow : Window, IDisposable
         if (charInfo.HasValue)
         {
             var (cid, name, world) = charInfo.Value;
-            var isSupplier = C.Suppliers.ContainsKey(cid);
+            bool isSupplier;
+            lock (C.Suppliers)
+            {
+                isSupplier = C.Suppliers.ContainsKey(cid);
+            }
 
             ImGui.TextUnformatted($"Current: {name} @ {world}");
             ImGui.SameLine();
@@ -410,7 +414,10 @@ public class ConfigWindow : Window, IDisposable
             {
                 if (ImGui.SmallButton("Remove as Supplier"))
                 {
-                    C.Suppliers.Remove(cid);
+                    lock (C.Suppliers)
+                    {
+                        C.Suppliers.Remove(cid);
+                    }
                     Svc.PluginInterface.SavePluginConfig(C);
                 }
             }
@@ -418,19 +425,20 @@ public class ConfigWindow : Window, IDisposable
             {
                 if (ImGui.SmallButton("Mark as Supplier"))
                 {
-                    var (ceruleum, repairKits, fcId, fcCeruleum, fcRepairKits) = P.FleetDataProvider.GetSupplierInventory(cid);
-                    C.Suppliers[cid] = new SupplierCharacter
+                    var (ceruleum, repairKits, fcId) = P.FleetDataProvider.GetSupplierInventory(cid);
+                    lock (C.Suppliers)
                     {
-                        Name = name,
-                        World = world,
-                        Ceruleum = ceruleum,
-                        RepairKits = repairKits,
-                        FcId = fcId,
-                        FcCeruleum = fcCeruleum,
-                        FcRepairKits = fcRepairKits,
-                        FcCredits = fcId != 0 ? P.FleetDataProvider.GetFCCredits(fcId) : 0,
-                        LastUpdated = DateTime.UtcNow
-                    };
+                        C.Suppliers[cid] = new SupplierCharacter
+                        {
+                            Name = name,
+                            World = world,
+                            Ceruleum = ceruleum,
+                            RepairKits = repairKits,
+                            FcId = fcId,
+                            FcCredits = fcId != 0 ? P.FleetDataProvider.GetFCCredits(fcId) : 0,
+                            LastUpdated = DateTime.UtcNow
+                        };
+                    }
                     Svc.PluginInterface.SavePluginConfig(C);
                 }
             }
@@ -440,15 +448,21 @@ public class ConfigWindow : Window, IDisposable
             ImGui.TextColored(SubtleTextColor, "Log in to a character to manage suppliers.");
         }
 
-        // List registered suppliers
-        if (C.Suppliers.Count > 0)
+        // List registered suppliers — snapshot to avoid concurrent modification
+        KeyValuePair<ulong, SupplierCharacter>[] suppliersSnapshot;
+        lock (C.Suppliers)
+        {
+            suppliersSnapshot = C.Suppliers.ToArray();
+        }
+
+        if (suppliersSnapshot.Length > 0)
         {
             ImGui.Spacing();
-            ImGui.TextColored(SubtleTextColor, $"Registered Suppliers ({C.Suppliers.Count}):");
+            ImGui.TextColored(SubtleTextColor, $"Registered Suppliers ({suppliersSnapshot.Length}):");
             ImGui.Spacing();
 
             ulong? removeKey = null;
-            foreach (var (cid, supplier) in C.Suppliers)
+            foreach (var (cid, supplier) in suppliersSnapshot)
             {
                 var isCurrentChar = charInfo.HasValue && charInfo.Value.cid == cid;
                 var nameDisplay = isCurrentChar ? $"{supplier.Name}*" : supplier.Name;
@@ -478,7 +492,10 @@ public class ConfigWindow : Window, IDisposable
 
             if (removeKey.HasValue)
             {
-                C.Suppliers.Remove(removeKey.Value);
+                lock (C.Suppliers)
+                {
+                    C.Suppliers.Remove(removeKey.Value);
+                }
                 Svc.PluginInterface.SavePluginConfig(C);
             }
         }

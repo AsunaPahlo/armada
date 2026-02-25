@@ -55,7 +55,7 @@
       "autoretainerapi": {
         "type": "Project",
         "dependencies": {
-          "ECommons": "[3.1.0.26, )"
+          "ECommons": "[3.1.0.1, )"
         }
       }
     }

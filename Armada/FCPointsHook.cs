@@ -245,7 +245,7 @@ public unsafe class FCPointsHook : IDisposable
             return TryGetAddonByName<AtkUnitBase>("FreeCompany", out var addon) && addon->IsReady();
         }, "WaitForFCWindow");
 
-        // Step 4: Close FC window
+        // Step 4: Close FC window and resend fleet data with updated FC points
         _taskManager.Enqueue(() =>
         {
             if (TryGetAddonByName<AtkUnitBase>("FreeCompany", out var addon) && addon->IsReady())
@@ -254,7 +254,13 @@ public unsafe class FCPointsHook : IDisposable
                 Callback.Fire(addon, true, -1);
             }
             _refreshInProgress = false;
-            PluginLog.Information("Armada: FC points refresh complete");
+            PluginLog.Information("Armada: FC points refresh complete, triggering resend");
+
+            // Resend fleet data so the web gets updated FC points immediately.
+            // This is important for accounts with no subs — they have no condition
+            // change triggers, so the initial send (before the hook fired) may be
+            // the only one, and it would have fc_credits: 0.
+            P.FleetDataProvider?.ForceSend();
         }, "CloseFCWindow");
     }
 
