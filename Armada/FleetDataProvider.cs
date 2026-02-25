@@ -87,6 +87,10 @@ public class FleetDataProvider : IDisposable
     // Cost: 1 for 1st sub, 3 for 2nd, 5 for 3rd, 7 for 4th (16 total)
     private const uint DiveCreditItemId = 22317;
 
+    // Supplier inventory item IDs
+    private const uint CeruleumTankItemId = 10155;
+    private const uint RepairMaterialsItemId = 10373;
+
     private AutoRetainerApi? _api;
     private InventoryToolsApi? _inventoryApi;
     private bool _isReady;
@@ -324,12 +328,16 @@ public class FleetDataProvider : IDisposable
             var fcData = GetFCData(activeFcIds);
             PluginLog.Debug($"Armada: Found {fcData.Count} FCs");
 
+            // Get supplier data (refreshes current character if they're a supplier)
+            var suppliersList = GetSupplierData();
+
             return new Dictionary<string, object>
             {
                 ["nickname"] = C.Nickname,
                 ["characters"] = characters,
                 ["fc_data"] = fcData,
-                ["route_plans"] = routePlans
+                ["route_plans"] = routePlans,
+                ["suppliers"] = suppliersList
             };
         }
         catch (Exception ex)
@@ -614,7 +622,8 @@ public class FleetDataProvider : IDisposable
                         ["unlocked_sectors"] = charUnlocks,
                         ["inventory_parts"] = inventoryParts,
                         ["salvage_value"] = salvageValue,
-                        ["dive_credits"] = diveCredits
+                        ["dive_credits"] = diveCredits,
+                        ["free_inventory_slots"] = charData.InventorySpace
                     });
 
                     // Track this FC as active (has non-excluded characters)
@@ -776,6 +785,95 @@ public class FleetDataProvider : IDisposable
             PluginLog.Debug($"Armada: Failed to get dive credits for {characterId} - {ex.Message}");
             return 0;
         }
+    }
+
+    /// <summary>
+    /// Get the currently logged-in character's Content ID, name, and world.
+    /// Returns null if not logged in.
+    /// </summary>
+    public (ulong cid, string name, string world)? GetCurrentCharacterInfo()
+    {
+        try
+        {
+            return Svc.Framework.RunOnFrameworkThread(() =>
+            {
+                if (!Svc.ClientState.IsLoggedIn || Svc.Objects.LocalPlayer == null)
+                    return ((ulong, string, string)?)null;
+
+                var player = Svc.Objects.LocalPlayer;
+                var cid = Svc.PlayerState.ContentId;
+                var name = player.Name.ToString();
+                var world = player.HomeWorld.Value.Name.ToString();
+                return (cid, name, world);
+            }).Result;
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Debug($"Armada: Failed to get current character info - {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Query the active character's ceruleum and repair materials via AllaganTools.
+    /// Includes personal inventory and all retainer inventories.
+    /// </summary>
+    public (uint ceruleum, uint repairKits) GetSupplierInventory(ulong characterId)
+    {
+        if (_inventoryApi == null || !_inventoryApi.IsAvailable)
+            return (0, 0);
+
+        try
+        {
+            // GetItemCountOwned sums across the active character + all their retainers
+            var ceruleum = _inventoryApi.GetItemCountOwned(CeruleumTankItemId);
+            var repairKits = _inventoryApi.GetItemCountOwned(RepairMaterialsItemId);
+            return (ceruleum, repairKits);
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Debug($"Armada: Failed to get supplier inventory for {characterId} - {ex.Message}");
+            return (0, 0);
+        }
+    }
+
+    /// <summary>
+    /// Get all supplier data for transmission. Refreshes inventory for the currently logged-in
+    /// character if they are a registered supplier.
+    /// </summary>
+    private List<Dictionary<string, object>> GetSupplierData()
+    {
+        var result = new List<Dictionary<string, object>>();
+
+        // Refresh the current character's supplier data if they're registered
+        var charInfo = GetCurrentCharacterInfo();
+        if (charInfo.HasValue && C.Suppliers.ContainsKey(charInfo.Value.cid))
+        {
+            var (ceruleum, repairKits) = GetSupplierInventory(charInfo.Value.cid);
+            var supplier = C.Suppliers[charInfo.Value.cid];
+            supplier.Name = charInfo.Value.name;
+            supplier.World = charInfo.Value.world;
+            supplier.Ceruleum = ceruleum;
+            supplier.RepairKits = repairKits;
+            supplier.LastUpdated = DateTime.UtcNow;
+            Svc.PluginInterface.SavePluginConfig(C);
+        }
+
+        // Build list of all suppliers
+        foreach (var (cid, supplier) in C.Suppliers)
+        {
+            result.Add(new Dictionary<string, object>
+            {
+                ["cid"] = cid.ToString(),
+                ["name"] = supplier.Name,
+                ["world"] = supplier.World,
+                ["ceruleum"] = supplier.Ceruleum,
+                ["repair_kits"] = supplier.RepairKits,
+                ["last_updated"] = supplier.LastUpdated.ToString("o")
+            });
+        }
+
+        return result;
     }
 
     /// <summary>

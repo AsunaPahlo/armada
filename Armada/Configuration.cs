@@ -25,4 +25,22 @@ public class Configuration : IPluginConfiguration
     /// Nickname for this client instance
     /// </summary>
     public string Nickname { get; set; } = Environment.MachineName;
+
+    /// <summary>
+    /// Characters designated as suppliers (inventory mules for ceruleum/repair materials).
+    /// Key is character Content ID (CID).
+    /// </summary>
+    public Dictionary<ulong, SupplierCharacter> Suppliers { get; set; } = new();
+}
+
+/// <summary>
+/// A character designated as a supplier of ceruleum and repair materials.
+/// </summary>
+public class SupplierCharacter
+{
+    public string Name { get; set; } = "";
+    public string World { get; set; } = "";
+    public uint Ceruleum { get; set; }
+    public uint RepairKits { get; set; }
+    public DateTime LastUpdated { get; set; } = DateTime.MinValue;
 }

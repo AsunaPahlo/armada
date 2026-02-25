@@ -51,6 +51,11 @@ public class ConfigWindow : Window, IDisposable
             DrawCacheStatus();
         }
 
+        // Supplier Characters Section
+        ImGui.Spacing();
+        DrawSectionHeader("Supplier Characters");
+        DrawSupplierSection();
+
         ImGui.Spacing();
 
         // Setup Instructions Section
@@ -374,6 +379,104 @@ public class ConfigWindow : Window, IDisposable
         if (ImGui.IsItemHovered())
         {
             ImGui.SetTooltip("Data will be sent automatically when reconnected");
+        }
+
+        ImGui.Unindent(4);
+    }
+
+    private void DrawSupplierSection()
+    {
+        ImGui.Indent(4);
+
+        // Check AllaganTools availability
+        if (!P.FleetDataProvider.IsAllaganToolsAvailable)
+        {
+            ImGui.TextColored(SubtleTextColor, "Requires AllaganTools to track supplier inventory.");
+            ImGui.Unindent(4);
+            return;
+        }
+
+        // Current character info
+        var charInfo = P.FleetDataProvider.GetCurrentCharacterInfo();
+        if (charInfo.HasValue)
+        {
+            var (cid, name, world) = charInfo.Value;
+            var isSupplier = C.Suppliers.ContainsKey(cid);
+
+            ImGui.TextUnformatted($"Current: {name} @ {world}");
+            ImGui.SameLine();
+
+            if (isSupplier)
+            {
+                if (ImGui.SmallButton("Remove as Supplier"))
+                {
+                    C.Suppliers.Remove(cid);
+                    Svc.PluginInterface.SavePluginConfig(C);
+                }
+            }
+            else
+            {
+                if (ImGui.SmallButton("Mark as Supplier"))
+                {
+                    var (ceruleum, repairKits) = P.FleetDataProvider.GetSupplierInventory(cid);
+                    C.Suppliers[cid] = new SupplierCharacter
+                    {
+                        Name = name,
+                        World = world,
+                        Ceruleum = ceruleum,
+                        RepairKits = repairKits,
+                        LastUpdated = DateTime.UtcNow
+                    };
+                    Svc.PluginInterface.SavePluginConfig(C);
+                }
+            }
+        }
+        else
+        {
+            ImGui.TextColored(SubtleTextColor, "Log in to a character to manage suppliers.");
+        }
+
+        // List registered suppliers
+        if (C.Suppliers.Count > 0)
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(SubtleTextColor, $"Registered Suppliers ({C.Suppliers.Count}):");
+            ImGui.Spacing();
+
+            ulong? removeKey = null;
+            foreach (var (cid, supplier) in C.Suppliers)
+            {
+                var isCurrentChar = charInfo.HasValue && charInfo.Value.cid == cid;
+                var nameDisplay = isCurrentChar ? $"{supplier.Name}*" : supplier.Name;
+
+                ImGui.TextUnformatted($"  {nameDisplay} @ {supplier.World}");
+                ImGui.SameLine();
+                ImGui.TextColored(SubtleTextColor, $"- Ceruleum: {supplier.Ceruleum:N0}  Repair: {supplier.RepairKits:N0}");
+
+                ImGui.SameLine();
+                ImGui.PushID($"remove_{cid}");
+                if (ImGui.SmallButton("X"))
+                {
+                    removeKey = cid;
+                }
+                ImGui.PopID();
+
+                // Show last updated time
+                if (supplier.LastUpdated > DateTime.MinValue)
+                {
+                    var ago = DateTime.UtcNow - supplier.LastUpdated;
+                    var agoStr = ago.TotalHours < 1 ? $"{ago.Minutes}m ago" :
+                                 ago.TotalDays < 1 ? $"{ago.Hours}h ago" :
+                                 $"{ago.Days}d ago";
+                    ImGui.TextColored(SubtleTextColor, $"    Last updated: {agoStr}");
+                }
+            }
+
+            if (removeKey.HasValue)
+            {
+                C.Suppliers.Remove(removeKey.Value);
+                Svc.PluginInterface.SavePluginConfig(C);
+            }
         }
 
         ImGui.Unindent(4);
