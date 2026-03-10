@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/14.0.1">
   <PropertyGroup>
-    <Version>1.0.0.17</Version>
+    <Version>1.0.0.19</Version>
     <PackageProjectUrl></PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <PackageReference Include="ECommons" Version="3.1.0.26" />
+    <PackageReference Include="ECommons.IPC" Version="1.0.0.15" />
     <PackageReference Include="SocketIOClient" Version="3.1.1" />
   </ItemGroup>
 

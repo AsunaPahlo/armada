@@ -41,7 +41,7 @@ public class ConfigWindow : Window, IDisposable
         ImGui.Spacing();
 
         // AutoRetainer API Section
-        DrawSectionHeader("AutoRetainer Integration");
+        DrawSectionHeader("Plugin Integration");
         DrawAutoRetainerStatus();
 
         // Show cache status if there's pending data
@@ -349,6 +349,27 @@ public class ConfigWindow : Window, IDisposable
             ImGui.TextColored(SubtleTextColor, "AllaganTools not available");
             ImGui.SameLine();
             ImGui.TextColored(SubtleTextColor, "- Optional, for parts inventory");
+        }
+
+        // CashFlow status
+        ImGui.Spacing();
+        var isCashFlowAvailable = P.FleetDataProvider.IsCashFlowAvailable;
+
+        if (isCashFlowAvailable)
+        {
+            ImGui.TextColored(SuccessColor, "●");
+            ImGui.SameLine();
+            ImGui.TextUnformatted("CashFlow API connected");
+            ImGui.SameLine();
+            ImGui.TextColored(SubtleTextColor, "- Gil tracking enabled");
+        }
+        else
+        {
+            ImGui.TextColored(SubtleTextColor, "○");
+            ImGui.SameLine();
+            ImGui.TextColored(SubtleTextColor, "CashFlow not available");
+            ImGui.SameLine();
+            ImGui.TextColored(SubtleTextColor, "- Optional, for gil tracking");
         }
 
         ImGui.Unindent(4);

@@ -20,6 +20,15 @@
         "resolved": "3.1.0.26",
         "contentHash": "U/8GcdAmMp7ARLie3U5LoEqWbSnWf16nziljwd78kHPqNgZdrUKUv6GMRgbIXzBUWPA4Ivy2K0rR9y/Y05tkiQ=="
       },
+      "ECommons.IPC": {
+        "type": "Direct",
+        "requested": "[1.0.0.15, )",
+        "resolved": "1.0.0.15",
+        "contentHash": "SmQAfP01qewPGcJqbKHzDUUlIHkFfTwqPiew/KnJYGHk2Ue1VTyacc2tIqZ1FZB0z2Bn1roZ9NQjOdlrmVnL8w==",
+        "dependencies": {
+          "ECommons": "3.1.0.1"
+        }
+      },
       "SocketIOClient": {
         "type": "Direct",
         "requested": "[3.1.1, )",

@@ -26,6 +26,13 @@ public sealed class Plugin : IDalamudPlugin
     public FCPointsHook FCPointsHook { get; private set; } = null!;
     public DataCache DataCache { get; private set; } = null!;
 
+    // Deferred login send: wait for character to be fully available (e.g. inn cutscene over)
+    private bool _pendingLoginSend;
+    private DateTime _loginSendDeadline;
+    private DateTime _lastLoginPollTime;
+    private static readonly TimeSpan LoginSendTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan LoginPollInterval = TimeSpan.FromSeconds(2);
+
     public Plugin(IDalamudPluginInterface pluginInterface)
     {
         P = this;
@@ -57,6 +64,7 @@ public sealed class Plugin : IDalamudPlugin
 
             // Subscribe to game events
             Svc.Condition.ConditionChange += OnConditionChange;
+            Svc.Framework.Update += OnFrameworkUpdate;
             Svc.ClientState.Logout += OnLogout;
 
             // Initialize config window
@@ -69,6 +77,7 @@ public sealed class Plugin : IDalamudPlugin
                 HelpMessage = "Open Armada configuration"
             });
 
+            
             // Register UI callbacks
             Svc.PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
             Svc.PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
@@ -85,13 +94,46 @@ public sealed class Plugin : IDalamudPlugin
                 _ = ArmadaClient.ConnectAsync();
                 PluginLog.Information("Armada plugin loaded");
             }
+            
+            
+            ProperOnLogin.RegisterAvailable(() =>
+            {
+                var cid = Svc.PlayerState.ContentId;
+                bool isSupplier;
+                lock (C.Suppliers)
+                {
+                    isSupplier = C.Suppliers.ContainsKey(cid);
+                }
+
+                if (isSupplier && C.Enabled)
+                {
+                    var player = Svc.Objects.LocalPlayer!;
+                    if (player.CurrentWorld.RowId != player.HomeWorld.RowId)
+                        return;
+
+                    if (IsCharacterReady())
+                    {
+                        PluginLog.Information($"Armada: Supplier {player.Name.TextValue} logged in on homeworld, sending data");
+                        FleetDataProvider.ForceSend();
+                    }
+                    else
+                    {
+                        PluginLog.Information($"Armada: Supplier {player.Name.TextValue} logged in on homeworld but not ready (cutscene/loading), deferring send");
+                        _pendingLoginSend = true;
+                        _loginSendDeadline = DateTime.UtcNow + LoginSendTimeout;
+                    }
+                }
+            }, true);
         });
     }
+    
+
 
     public void Dispose()
     {
         // Unsubscribe from game events
         Svc.Condition.ConditionChange -= OnConditionChange;
+        Svc.Framework.Update -= OnFrameworkUpdate;
         Svc.ClientState.Logout -= OnLogout;
 
         // Unsubscribe from internal events
@@ -129,6 +171,36 @@ public sealed class Plugin : IDalamudPlugin
 
     public void ToggleConfigUi() => ConfigWindow.Toggle();
 
+    private bool IsCharacterReady()
+    {
+        try
+        {
+            if (!Svc.ClientState.IsLoggedIn || Svc.Objects.LocalPlayer == null)
+                return false;
+
+            var player = Svc.Objects.LocalPlayer;
+            if (player.CurrentWorld.RowId != player.HomeWorld.RowId)
+                return false;
+
+            var cond = Svc.Condition;
+            if (cond[ConditionFlag.OccupiedInCutSceneEvent] ||
+                cond[ConditionFlag.WatchingCutscene] ||
+                cond[ConditionFlag.WatchingCutscene78] ||
+                cond[ConditionFlag.BetweenAreas] ||
+                cond[ConditionFlag.BetweenAreas51] ||
+                cond[ConditionFlag.BoundByDuty] ||
+                cond[ConditionFlag.BoundByDuty56] ||
+                cond[ConditionFlag.BoundByDuty95])
+                return false;
+
+            return IsScreenReady();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private unsafe void OnConditionChange(ConditionFlag flag, bool value)
     {
         if (HousingManager.Instance()->WorkshopTerritory != null && flag == ConditionFlag.OccupiedInEvent && !value)
@@ -137,9 +209,36 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
+    private void OnFrameworkUpdate(IFramework framework)
+    {
+        if (!_pendingLoginSend)
+            return;
+
+        var now = DateTime.UtcNow;
+
+        if (now > _loginSendDeadline)
+        {
+            PluginLog.Warning("Armada: Deferred login send timed out, giving up");
+            _pendingLoginSend = false;
+            return;
+        }
+
+        if (now - _lastLoginPollTime < LoginPollInterval)
+            return;
+
+        _lastLoginPollTime = now;
+
+        if (IsCharacterReady())
+        {
+            _pendingLoginSend = false;
+            PluginLog.Information("Armada: Character now ready after login, sending deferred data");
+            FleetDataProvider.ForceSend();
+        }
+    }
+
     private void OnLogout(int type, int code)
     {
-        //FleetDataProvider.ForceSend();
+        _pendingLoginSend = false;
     }
 
     private void OnAuthenticated()

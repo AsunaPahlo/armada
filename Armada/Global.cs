@@ -6,6 +6,7 @@ global using ECommons;
 global using ECommons.DalamudServices;
 global using ECommons.ImGuiMethods;
 global using ECommons.Logging;
+global using ECommons.Events;
 global using Dalamud.Bindings.ImGui;
 global using Newtonsoft.Json;
 global using Newtonsoft.Json.Linq;

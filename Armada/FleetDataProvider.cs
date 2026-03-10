@@ -1,6 +1,7 @@
 using AutoRetainerAPI;
 using AutoRetainerAPI.Configuration;
 using ECommons.DalamudServices;
+using ECommons.IPC.Subscribers.CashFlow;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using Lumina.Excel.Sheets;
@@ -101,6 +102,32 @@ public class FleetDataProvider : IDisposable
     public bool IsReady => _isReady;
     public bool IsApiAvailable => _api?.Ready ?? false;
     public bool IsAllaganToolsAvailable => _inventoryApi?.IsAvailable ?? false;
+
+    private bool _isCashFlowAvailable;
+    private DateTime _lastCashFlowCheckTime = DateTime.MinValue;
+    private static readonly TimeSpan CashFlowCheckInterval = TimeSpan.FromSeconds(30);
+
+    public bool IsCashFlowAvailable
+    {
+        get
+        {
+            if (DateTime.Now - _lastCashFlowCheckTime < CashFlowCheckInterval)
+                return _isCashFlowAvailable;
+
+            _lastCashFlowCheckTime = DateTime.Now;
+            try
+            {
+                var cashFlow = new CashFlowIPC();
+                cashFlow.GetGilRecords(0, 0);
+                _isCashFlowAvailable = true;
+            }
+            catch
+            {
+                _isCashFlowAvailable = false;
+            }
+            return _isCashFlowAvailable;
+        }
+    }
 
     /// <summary>
     /// Check if APIs that weren't available at startup are now available.
@@ -335,13 +362,17 @@ public class FleetDataProvider : IDisposable
             // Get supplier data (refreshes current character if they're a supplier)
             var suppliersList = GetSupplierData();
 
+            // Get gil records from CashFlow IPC (optional - won't fail if not available)
+            var gilRecords = GetGilRecords();
+
             return new Dictionary<string, object>
             {
                 ["nickname"] = C.Nickname,
                 ["characters"] = characters,
                 ["fc_data"] = fcData,
                 ["route_plans"] = routePlans,
-                ["suppliers"] = suppliersList
+                ["suppliers"] = suppliersList,
+                ["gil_records"] = gilRecords
             };
         }
         catch (Exception ex)
@@ -1016,6 +1047,50 @@ public class FleetDataProvider : IDisposable
         catch (Exception ex)
         {
             PluginLog.Debug($"Armada: Failed to get submarine parts inventory for {characterId} - {ex.Message}");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Query CashFlow IPC for historical gil records across all characters.
+    /// Returns a list of serializable records for the server.
+    /// </summary>
+    private List<Dictionary<string, object>> GetGilRecords()
+    {
+        var result = new List<Dictionary<string, object>>();
+
+        try
+        {
+            var cashFlow = new CashFlowIPC();
+            var records = cashFlow.GetGilRecords(0, 0);
+
+            foreach (var entry in records)
+            {
+                var playerInfo = cashFlow.GetPlayerInfo(entry.CidUlong);
+                var nameAndWorld = playerInfo?.ToString() ?? "";
+
+                // Parse "Name@World" format
+                var parts = nameAndWorld.Split('@');
+                var characterName = parts.Length > 0 ? parts[0] : entry.CidUlong.ToString();
+                var world = parts.Length > 1 ? parts[1] : "";
+
+                result.Add(new Dictionary<string, object>
+                {
+                    ["cid"] = entry.CidUlong.ToString(),
+                    ["character_name"] = characterName,
+                    ["world"] = world,
+                    ["gil_player"] = entry.GilPlayer,
+                    ["gil_retainer"] = entry.GilRetainer,
+                    ["timestamp"] = entry.UnixTime
+                });
+            }
+
+            PluginLog.Debug($"Armada: Collected {result.Count} gil records from CashFlow");
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Debug($"Armada: CashFlow IPC not available - {ex.Message}");
         }
 
         return result;
