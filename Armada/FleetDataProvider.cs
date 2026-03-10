@@ -104,6 +104,7 @@ public class FleetDataProvider : IDisposable
     public bool IsAllaganToolsAvailable => _inventoryApi?.IsAvailable ?? false;
 
     private bool _isCashFlowAvailable;
+    private CashFlowIPC? _cashFlowIpc;
     private DateTime _lastCashFlowCheckTime = DateTime.MinValue;
     private static readonly TimeSpan CashFlowCheckInterval = TimeSpan.FromSeconds(30);
 
@@ -117,13 +118,14 @@ public class FleetDataProvider : IDisposable
             _lastCashFlowCheckTime = DateTime.Now;
             try
             {
-                var cashFlow = new CashFlowIPC();
-                cashFlow.GetGilRecords(0, 0);
+                _cashFlowIpc ??= new CashFlowIPC();
+                _cashFlowIpc.GetGilRecords(0, 0);
                 _isCashFlowAvailable = true;
             }
             catch
             {
                 _isCashFlowAvailable = false;
+                _cashFlowIpc = null;
             }
             return _isCashFlowAvailable;
         }
@@ -1062,12 +1064,12 @@ public class FleetDataProvider : IDisposable
 
         try
         {
-            var cashFlow = new CashFlowIPC();
-            var records = cashFlow.GetGilRecords(0, 0);
+            _cashFlowIpc ??= new CashFlowIPC();
+            var records = _cashFlowIpc.GetGilRecords(0, 0);
 
             foreach (var entry in records)
             {
-                var playerInfo = cashFlow.GetPlayerInfo(entry.CidUlong);
+                var playerInfo = _cashFlowIpc.GetPlayerInfo(entry.CidUlong);
                 var nameAndWorld = playerInfo?.ToString() ?? "";
 
                 // Parse "Name@World" format
