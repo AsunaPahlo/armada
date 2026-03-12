@@ -693,7 +693,9 @@ public class FleetDataProvider : IDisposable
                 var subName = sub.Name ?? "";
                 var returnTime = sub.ReturnTime;
 
-                if (returnTime <= 0)
+                // Skip truly uninitialized submarines (no name = never registered)
+                // Do NOT skip idle subs (returnTime == 0) - they're real subs just not on a voyage
+                if (string.IsNullOrEmpty(subName))
                     continue;
 
                 // Get additional data for this submarine
