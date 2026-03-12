@@ -31,6 +31,12 @@ public class Configuration : IPluginConfiguration
     /// Key is character Content ID (CID).
     /// </summary>
     public Dictionary<ulong, SupplierCharacter> Suppliers { get; set; } = new();
+
+    /// <summary>
+    /// Unix timestamp (ms) of the most recent gil record successfully sent to the server.
+    /// Used to send only new records on subsequent updates. Reset to 0 for a full sync.
+    /// </summary>
+    public long LastGilSyncTimestamp { get; set; }
 }
 
 /// <summary>

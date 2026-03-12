@@ -362,6 +362,22 @@ public class ConfigWindow : Window, IDisposable
             ImGui.TextUnformatted("CashFlow API connected");
             ImGui.SameLine();
             ImGui.TextColored(SubtleTextColor, "- Gil tracking enabled");
+
+            // Full sync button
+            ImGui.SameLine();
+            var canSync = P.ArmadaClient.IsAuthenticated;
+            if (!canSync) ImGui.BeginDisabled();
+            if (ImGui.SmallButton("Full Sync"))
+            {
+                P.FleetDataProvider.TriggerFullGilSync();
+            }
+            if (!canSync) ImGui.EndDisabled();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            {
+                ImGui.SetTooltip(canSync
+                    ? "Re-send entire cashflow history to the server"
+                    : "Requires authenticated connection");
+            }
         }
         else
         {

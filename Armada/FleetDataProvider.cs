@@ -245,13 +245,24 @@ public class FleetDataProvider : IDisposable
         Task.Run(() => SendFleetDataAsync(isManual: true));
     }
 
-    public async Task SendFleetDataAsync(bool isManual = false)
+    public async Task SendFleetDataAsync(bool isManual = false, bool fullGilSync = false)
     {
         // Check if APIs that weren't available at startup are now available
         CheckAndInitializeApis();
 
         // Request FC points refresh if stale (non-blocking — enqueues UI tasks)
-        P.FCPointsHook?.RequestRefresh();
+        // Only needed when the currently logged-in character is a registered supplier
+        var charInfo = GetCurrentCharacterInfo();
+        if (charInfo.HasValue)
+        {
+            bool isSupplier;
+            lock (C.Suppliers)
+            {
+                isSupplier = C.Suppliers.ContainsKey(charInfo.Value.cid);
+            }
+            if (isSupplier)
+                P.FCPointsHook?.RequestRefresh();
+        }
 
         if (!P.ArmadaClient.IsConnected || !P.ArmadaClient.IsAuthenticated)
         {
@@ -275,10 +286,14 @@ public class FleetDataProvider : IDisposable
 
         try
         {
-            var data = GetFleetData();
+            var data = GetFleetData(fullGilSync);
             if (data != null)
             {
-                await P.ArmadaClient.SendFleetDataAsync(new List<Dictionary<string, object>> { data });
+                var success = await P.ArmadaClient.SendFleetDataAsync(new List<Dictionary<string, object>> { data });
+                if (success)
+                {
+                    OnGilRecordsSent();
+                }
                 PluginLog.Information("Armada: Sent fleet data via API");
             }
             else
@@ -333,7 +348,7 @@ public class FleetDataProvider : IDisposable
         }
     }
 
-    public Dictionary<string, object>? GetFleetData()
+    public Dictionary<string, object>? GetFleetData(bool fullGilSync = false)
     {
         if (_api == null || !_api.Ready)
         {
@@ -365,7 +380,7 @@ public class FleetDataProvider : IDisposable
             var suppliersList = GetSupplierData();
 
             // Get gil records from CashFlow IPC (optional - won't fail if not available)
-            var gilRecords = GetGilRecords();
+            var gilRecords = GetGilRecords(fullGilSync);
 
             return new Dictionary<string, object>
             {
@@ -1058,17 +1073,28 @@ public class FleetDataProvider : IDisposable
 
     /// <summary>
     /// Query CashFlow IPC for historical gil records across all characters.
-    /// Returns a list of serializable records for the server.
+    /// Only fetches records newer than the last successful sync timestamp.
+    /// First sync sends full history; subsequent syncs send only new records.
     /// </summary>
-    private List<Dictionary<string, object>> GetGilRecords()
+    private List<Dictionary<string, object>> GetGilRecords(bool fullSync = false)
     {
         var result = new List<Dictionary<string, object>>();
 
         try
         {
             _cashFlowIpc ??= new CashFlowIPC();
-            var records = _cashFlowIpc.GetGilRecords(0, 0);
 
+            // Use last sync watermark, or 0 (full history) if first sync or explicit full sync
+            long minTimestamp = 0;
+            if (!fullSync && C.LastGilSyncTimestamp > 0)
+            {
+                // Add 1ms to avoid re-sending the exact last record
+                minTimestamp = C.LastGilSyncTimestamp + 1;
+            }
+
+            var records = _cashFlowIpc.GetGilRecords(minTimestamp, 0);
+
+            long maxTimestamp = 0;
             foreach (var entry in records)
             {
                 var playerInfo = _cashFlowIpc.GetPlayerInfo(entry.CidUlong);
@@ -1088,9 +1114,15 @@ public class FleetDataProvider : IDisposable
                     ["gil_retainer"] = entry.GilRetainer,
                     ["timestamp"] = entry.UnixTime
                 });
+
+                if (entry.UnixTime > maxTimestamp)
+                    maxTimestamp = entry.UnixTime;
             }
 
-            PluginLog.Debug($"Armada: Collected {result.Count} gil records from CashFlow");
+            // Track the newest timestamp so we can save it after a successful send
+            _lastGilRecordTimestamp = maxTimestamp;
+
+            PluginLog.Debug($"Armada: Collected {result.Count} gil records from CashFlow (since {minTimestamp})");
         }
         catch (Exception ex)
         {
@@ -1098,6 +1130,36 @@ public class FleetDataProvider : IDisposable
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Tracks the newest gil record timestamp from the most recent GetGilRecords call.
+    /// Saved to config after a successful send.
+    /// </summary>
+    private long _lastGilRecordTimestamp;
+
+    /// <summary>
+    /// Called after fleet data is successfully sent to update the gil sync watermark.
+    /// </summary>
+    public void OnGilRecordsSent()
+    {
+        if (_lastGilRecordTimestamp > C.LastGilSyncTimestamp)
+        {
+            C.LastGilSyncTimestamp = _lastGilRecordTimestamp;
+            Svc.Framework.RunOnFrameworkThread(() => Svc.PluginInterface.SavePluginConfig(C));
+            PluginLog.Debug($"Armada: Updated gil sync watermark to {_lastGilRecordTimestamp}");
+        }
+    }
+
+    /// <summary>
+    /// Reset the gil sync timestamp and trigger a full history send.
+    /// </summary>
+    public void TriggerFullGilSync()
+    {
+        C.LastGilSyncTimestamp = 0;
+        Svc.Framework.RunOnFrameworkThread(() => Svc.PluginInterface.SavePluginConfig(C));
+        PluginLog.Information("Armada: Gil sync timestamp reset — next send will include full history");
+        Task.Run(() => SendFleetDataAsync(isManual: true, fullGilSync: true));
     }
 
     public void Dispose()

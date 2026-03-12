@@ -148,14 +148,21 @@ public unsafe class FCPointsHook : IDisposable
             return;
         }
 
-        // Check if current FC's cache is still fresh — skip if so
+        // Check if current character is in an FC at all
         try
         {
             var currentFcId = Svc.Framework.RunOnFrameworkThread(() =>
                 InfoProxyFreeCompany.Instance()->Id
             ).Result;
 
-            if (currentFcId != 0 && _cache.TryGetValue(currentFcId, out var cached) &&
+            if (currentFcId == 0)
+            {
+                PluginLog.Verbose("Armada: FC points refresh skipped - character is not in an FC");
+                return;
+            }
+
+            // Skip if cache is still fresh
+            if (_cache.TryGetValue(currentFcId, out var cached) &&
                 DateTime.UtcNow - cached.CapturedAt < RefreshInterval)
             {
                 PluginLog.Verbose($"Armada: FC points refresh skipped - cache for FC {currentFcId} is fresh ({(DateTime.UtcNow - cached.CapturedAt).TotalMinutes:F1} min old, value: {cached.Points:N0})");
