@@ -42,6 +42,18 @@ public sealed class Plugin : IDalamudPlugin
         {
             C = EzConfig.Init<Configuration>();
 
+            // One-time migration: earlier builds mixed EzConfig.Save() with SavePluginConfig(C),
+            // so supplier/connection data ended up in pluginConfigs/Armada.json while the EzConfig
+            // file kept empty defaults. If the legacy file is richer, adopt it and persist via EzConfig.
+            if (Svc.PluginInterface.GetPluginConfig() is Configuration legacy
+                && (legacy.Suppliers.Count > C.Suppliers.Count
+                    || (string.IsNullOrEmpty(C.ApiKey) && !string.IsNullOrEmpty(legacy.ApiKey))))
+            {
+                PluginLog.Warning("Armada: Migrating legacy Dalamud-path config into EzConfig store");
+                C = legacy;
+                EzConfig.Save();
+            }
+
             // Initialize data cache first (so it's available for other components)
             DataCache = new DataCache();
 

@@ -455,7 +455,7 @@ public class ConfigWindow : Window, IDisposable
                     {
                         C.Suppliers.Remove(cid);
                     }
-                    Svc.PluginInterface.SavePluginConfig(C);
+                    EzConfig.Save();
                 }
             }
             else
@@ -472,7 +472,7 @@ public class ConfigWindow : Window, IDisposable
                             World = world,
                         };
                     }
-                    Svc.PluginInterface.SavePluginConfig(C);
+                    EzConfig.Save();
 
                     // Then try to populate inventory data
                     try
@@ -491,7 +491,7 @@ public class ConfigWindow : Window, IDisposable
                                 supplier.LastUpdated = DateTime.UtcNow;
                             }
                         }
-                        Svc.PluginInterface.SavePluginConfig(C);
+                        EzConfig.Save();
                     }
                     catch (Exception ex)
                     {
@@ -553,7 +553,7 @@ public class ConfigWindow : Window, IDisposable
                 {
                     C.Suppliers.Remove(removeKey.Value);
                 }
-                Svc.PluginInterface.SavePluginConfig(C);
+                EzConfig.Save();
             }
         }
 

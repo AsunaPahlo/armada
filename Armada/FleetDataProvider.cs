@@ -1,5 +1,6 @@
 using AutoRetainerAPI;
 using AutoRetainerAPI.Configuration;
+using ECommons.Configuration;
 using ECommons.DalamudServices;
 using ECommons.IPC.Subscribers.CashFlow;
 using FFXIVClientStructs.FFXIV.Client.Game;
@@ -1010,7 +1011,7 @@ public class FleetDataProvider : IDisposable
                 existing.Value.FcRepairKits = fcRepairKits;
                 existing.Value.FcCredits = fcId != 0 ? GetFCCredits(fcId) : 0;
                 existing.Value.LastUpdated = DateTime.UtcNow;
-                Svc.Framework.RunOnFrameworkThread(() => Svc.PluginInterface.SavePluginConfig(C));
+                Svc.Framework.RunOnFrameworkThread(EzConfig.Save);
             }
         }
 
@@ -1146,7 +1147,7 @@ public class FleetDataProvider : IDisposable
         if (_lastGilRecordTimestamp > C.LastGilSyncTimestamp)
         {
             C.LastGilSyncTimestamp = _lastGilRecordTimestamp;
-            Svc.Framework.RunOnFrameworkThread(() => Svc.PluginInterface.SavePluginConfig(C));
+            Svc.Framework.RunOnFrameworkThread(EzConfig.Save);
             PluginLog.Debug($"Armada: Updated gil sync watermark to {_lastGilRecordTimestamp}");
         }
     }
@@ -1157,7 +1158,7 @@ public class FleetDataProvider : IDisposable
     public void TriggerFullGilSync()
     {
         C.LastGilSyncTimestamp = 0;
-        Svc.Framework.RunOnFrameworkThread(() => Svc.PluginInterface.SavePluginConfig(C));
+        Svc.Framework.RunOnFrameworkThread(EzConfig.Save);
         PluginLog.Information("Armada: Gil sync timestamp reset — next send will include full history");
         Task.Run(() => SendFleetDataAsync(isManual: true, fullGilSync: true));
     }
