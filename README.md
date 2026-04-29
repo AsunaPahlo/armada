@@ -15,6 +15,7 @@ A Dalamud plugin for FFXIV that uploads submarine fleet data to the Armada fleet
 
 - AutoRetainer
 - AllaganTools
+- Cashflow
 - Access to an Armada webui instance (selfhosted or otherwise)
 
 ### Installing the Plugin
