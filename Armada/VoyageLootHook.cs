@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Dalamud.Hooking;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.Event;
 using FFXIVClientStructs.FFXIV.Client.Network;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using Lumina.Excel.Sheets;
@@ -11,11 +12,7 @@ namespace Armada;
 
 public unsafe class VoyageLootHook : IDisposable
 {
-    // Signature from SubmarineTracker - CustomTalkEventResponsePacketHandler (https://github.com/goatcorp/Dalamud/blob/master/Dalamud/Game/Network/Internal/NetworkHandlersAddressResolver.cs)
-    //private const string PacketReceiverSig = "48 89 5C 24 ?? 48 89 6C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 49 8B D9 41 0F B6 F8 0F B7 F2 8B E9 E8 ?? ?? ?? ?? 44 0F B6 54 24 ?? 44 0F B6 CF 44 88 54 24 ?? 44 0F B7 C6 8B D5";
-
-    private delegate void PacketDelegate(nuint a1, ushort eventId, byte responseId, uint* args, byte argCount);
-    private readonly Hook<PacketDelegate>? _packetHandlerHook;
+    private readonly Hook<PacketDispatcher.Delegates.HandleEventYieldPacket>? _packetHandlerHook;
 
     public event Action<VoyageLootData>? OnVoyageCompleted;
 
@@ -25,9 +22,8 @@ public unsafe class VoyageLootHook : IDisposable
     {
         try
         {
-            var packetReceiverPtr = PacketDispatcher.Addresses.HandleEventYieldPacket.Value;
-            _packetHandlerHook =  Hook.HookFromAddress<PacketDelegate>(
-                packetReceiverPtr,
+            _packetHandlerHook = Hook.HookFromAddress<PacketDispatcher.Delegates.HandleEventYieldPacket>(
+                PacketDispatcher.MemberFunctionPointers.HandleEventYieldPacket,
                 PacketReceiver
             );
         }
@@ -50,13 +46,13 @@ public unsafe class VoyageLootHook : IDisposable
         }
     }
 
-    private void PacketReceiver(nuint a1, ushort eventId, byte responseId, uint* args, byte argCount)
+    private void PacketReceiver(EventId id, short scene, byte responseId, int* args, byte argCount)
     {
         // Call original first
-        _packetHandlerHook?.Original(a1, eventId, responseId, args, argCount);
+        _packetHandlerHook?.Original(id, scene, responseId, args, argCount);
 
         // Check if this is the voyage result event (721343 = 0xB01FF)
-        if (a1 != 721343)
+        if (id != 721343)
             return;
 
         try
