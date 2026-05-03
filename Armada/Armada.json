@@ -1,13 +1,15 @@
 {
-  "Author": "You",
-  "Name": "Armada",
-  "Punchline": "Submarine fleet data sync for Armada dashboard",
-  "Description": "Monitors AutoRetainer config file and sends submarine fleet data to the Armada web dashboard in real-time. Use /armada to configure.",
-  "ApplicableVersion": "any",
-  "Tags": [
+    "Author": "You",
+    "Name": "Armada",
+    "Punchline": "Submarine fleet data sync for Armada dashboard",
+    "Description": "Monitors AutoRetainer config file and sends submarine fleet data to the Armada web dashboard in real-time. Use /armada to configure.",
+    "ApplicableVersion": "any",
+    "IconUrl": "https://projects.gamba.pro/Asuna/releases/-/raw/main/Armada/logo.png",
+    "RepoUrl": "https://armadaxiv.com",
+    "Tags": [
     "submarine",
     "fleet",
     "autoretainer",
     "dashboard"
-  ]
+    ]
 }
