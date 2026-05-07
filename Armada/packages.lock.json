@@ -16,9 +16,9 @@
       },
       "ECommons": {
         "type": "Direct",
-        "requested": "[3.2.0.2, )",
-        "resolved": "3.2.0.2",
-        "contentHash": "inrqsG7HOuF4UC9jXYPdy1HEIjQqSAbOogyN6xcXvbLXCsjy3VRqQVR5PrLAoxt+GlSVu+qpsdo9KyUI/yPFIA=="
+        "requested": "[3.2.0.17, )",
+        "resolved": "3.2.0.17",
+        "contentHash": "B6l4Sb6anZh4ttLsEklx4LTE5DDxbEicZgqYNz5sgDb9y2wR5sVebYEWSrPgwSVPanx+UxQcocTtBrqBQfmN8g=="
       },
       "ECommons.IPC": {
         "type": "Direct",
@@ -64,7 +64,7 @@
       "autoretainerapi": {
         "type": "Project",
         "dependencies": {
-          "ECommons": "[3.1.0.30, )"
+          "ECommons": "[3.2.0.11, )"
         }
       }
     }
